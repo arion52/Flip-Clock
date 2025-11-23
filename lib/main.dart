@@ -1,5 +1,4 @@
-import 'package:flipclock/clock_theme.dart';
-import 'package:flipclock/flip_clock_widget.dart';
+import 'package:flipclock/minimal_clock_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -60,6 +59,7 @@ class _FlipClockPageState extends State<FlipClockPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FlipClockWidget(theme: ClockTheme.themes.last);
+    // Use the minimal clock UI for a simple desk clock
+    return const MinimalClockWidget();
   }
 }
