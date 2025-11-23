@@ -1,5 +1,3 @@
-
-
 import 'package:flutter/material.dart';
 
 class ClockTheme {
@@ -42,7 +40,7 @@ class ClockTheme {
     const ClockTheme(
       name: "Dark",
       backgroundColor: Colors.black,
-      secondaryBackgroundColor: Color(0xFF212121),
+      secondaryBackgroundColor: Color.fromARGB(255, 66, 66, 68),
       textColor: Colors.white,
       secondaryTextColor: Color(0xFF424242),
       borderColor: Color(0xFF424242),

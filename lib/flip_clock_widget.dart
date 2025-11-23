@@ -22,7 +22,6 @@ class _FlipClockWidgetState extends State<FlipClockWidget>
     with TickerProviderStateMixin {
   late StreamController<int> _hoursController;
   late StreamController<int> _minutesController;
-  late StreamController<int> _secondsController;
   late DateTime _currentTime;
   late Timer _timer;
 
@@ -31,7 +30,6 @@ class _FlipClockWidgetState extends State<FlipClockWidget>
     super.initState();
     _hoursController = StreamController<int>.broadcast();
     _minutesController = StreamController<int>.broadcast();
-    _secondsController = StreamController<int>.broadcast();
     _currentTime = DateTime.now();
     _updateTime();
     _startTimer();
@@ -39,10 +37,7 @@ class _FlipClockWidgetState extends State<FlipClockWidget>
 
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() {
-        _currentTime = DateTime.now();
-        _updateTime();
-      });
+      _updateTime();
     });
   }
 
@@ -54,7 +49,6 @@ class _FlipClockWidgetState extends State<FlipClockWidget>
     if (newTime.minute != _currentTime.minute) {
       _minutesController.add(newTime.minute);
     }
-    _secondsController.add(newTime.second);
     _currentTime = newTime;
   }
 
@@ -63,7 +57,6 @@ class _FlipClockWidgetState extends State<FlipClockWidget>
     _timer.cancel();
     _hoursController.close();
     _minutesController.close();
-    _secondsController.close();
     super.dispose();
   }
 
@@ -104,16 +97,13 @@ class _FlipClockWidgetState extends State<FlipClockWidget>
         SizedBox(height: spacing),
         _buildFlipUnit(
             _minutesController.stream, baseSize, _currentTime.minute),
-        SizedBox(height: spacing),
-        _buildFlipUnit(
-            _secondsController.stream, baseSize, _currentTime.second),
       ],
     );
   }
 
   Widget _buildLandscapeLayout(double baseSize, BoxConstraints constraints) {
     final availableWidth = constraints.maxWidth * 0.80;
-    final unitWidth = availableWidth / 3.5;
+    final unitWidth = availableWidth / 2.5;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -122,9 +112,6 @@ class _FlipClockWidgetState extends State<FlipClockWidget>
             _hoursController.stream, baseSize, _currentTime.hour, unitWidth),
         _buildSeparator(baseSize),
         _buildFlipUnit(_minutesController.stream, baseSize, _currentTime.minute,
-            unitWidth),
-        _buildSeparator(baseSize),
-        _buildFlipUnit(_secondsController.stream, baseSize, _currentTime.second,
             unitWidth),
       ],
     );
@@ -236,13 +223,13 @@ class CardPainter extends CustomPainter {
     canvas.drawRect(rect, paint);
 
     // Draw horizontal line
-    paint.color = theme.borderColor.withOpacity(0.5);
-    paint.strokeWidth = 1;
-    canvas.drawLine(
-      Offset(0, size.height / 2),
-      Offset(size.width, size.height / 2),
-      paint,
-    );
+    // paint.color = theme.borderColor.withOpacity(0.5);
+    // paint.strokeWidth = 1;
+    // canvas.drawLine(
+    //   Offset(0, size.height / 2),
+    //   Offset(size.width, size.height / 2),
+    //   paint,
+    // );
   }
 
   @override

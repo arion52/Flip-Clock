@@ -1,8 +1,9 @@
 library flip_panel_plus;
 
-import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
 
 // ignore: prefer_generic_function_type_aliases
 typedef Widget DigitBuilder(context, digit);
@@ -98,7 +99,8 @@ class FlipPanelPlus<T> extends StatefulWidget {
     required this.itemStream,
     required StreamItemBuilder<T> itemBuilder,
     this.initValue,
-    this.duration = const Duration(milliseconds: 500),
+    this.duration =
+        const Duration(milliseconds: 150), // Reduced for better battery life
     this.spacing = 0.5,
     this.direction = FlipDirection.down,
   })  : assert(itemStream != null),
@@ -153,11 +155,6 @@ class _FlipPanelPlusState<T> extends State<FlipPanelPlus>
           _currentValue = _nextValue;
           _running = false;
         }
-      })
-      ..addListener(() {
-        setState(() {
-          _running = true;
-        });
       });
     _animation =
         Tween(begin: _zeroAngle, end: math.pi / 2).animate(_controller);
