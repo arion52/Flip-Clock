@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
@@ -15,9 +16,15 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
   Timer? _timer;
   bool _is24 = false; // default to 12-hour display
   late final AnimationController _blinkController;
-  late final Animation<double> _blinkAnimation;
+  // blink minimum opacity (1.0 -> _blinkMinOpacity). Controlled via settings.
+  double _blinkMinOpacity = 0.6;
   bool _dimmed = false;
   Timer? _dimTimer;
+  // battery_plus removed; we no longer track plug state here
+  // session start tracking for elapsed desk time
+  DateTime _sessionStart = DateTime.now();
+  // dim timeout in minutes (0 = disabled)
+  double _dimTimeoutMinutes = 3.0;
 
   @override
   void initState() {
@@ -27,14 +34,15 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
     // align timer to minute boundary for efficiency
     _startTimer();
     // blinking colon animation (runs without setState each second)
+    // We drive opacity manually from the controller to allow runtime
+    // adjustments of the blink intensity (min opacity).
     _blinkController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 1),
+      duration: const Duration(milliseconds: 1400),
     )..repeat();
-    _blinkAnimation = Tween<double>(begin: 1.0, end: 0.25).animate(
-      CurvedAnimation(parent: _blinkController, curve: Curves.easeInOut),
-    );
     _resetDim();
+
+    // battery_plus removed: dimming always active (no plug-state override)
   }
 
   void _tick() {
@@ -81,14 +89,20 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
 
   void _resetDim() {
     _dimTimer?.cancel();
-    setState(() {
-      _dimmed = false;
+    if (_dimmed) setState(() => _dimmed = false);
+    if (_dimTimeoutMinutes <= 0) return; // dim disabled
+    _dimTimer = Timer(Duration(minutes: _dimTimeoutMinutes.toInt()), () {
+      if (!mounted) return;
+      setState(() => _dimmed = true);
     });
-    _dimTimer = Timer(const Duration(minutes: 3), () {
-      setState(() {
-        _dimmed = true;
-      });
-    });
+  }
+
+  String _elapsedString() {
+    final dur = DateTime.now().difference(_sessionStart);
+    final hours = dur.inHours;
+    final minutes = dur.inMinutes % 60;
+    if (hours > 0) return '${hours}h ${minutes}m';
+    return '${minutes}m';
   }
 
   @override
@@ -107,13 +121,12 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
 
     // auto-dim during night hours (UI-only): darker text color
     final hour = _now.hour;
-    final isNight = hour >= 22 || hour < 7;
-    const defaultTimeColor = Color(0xFFE6E6E6);
-    final timeColor = isNight
-        ? defaultTimeColor.withAlpha((0.1 * 255).toInt())
-        : defaultTimeColor;
-    final dateColor =
-        isNight ? const Color(0xFF777777) : const Color(0xFF888888);
+    final platformDark =
+        MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+    final isNight = platformDark || hour >= 22 || hour < 7;
+    // Use pure white for all text per user request
+    const timeColor = Colors.white;
+    const dateColor = Colors.white;
 
     final clockColumn = Column(
       mainAxisSize: MainAxisSize.min,
@@ -124,55 +137,78 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                hours,
-                key: const Key('minimal_clock_hours'),
-                style: TextStyle(
-                  fontFamily: 'JetBrainsMono',
-                  color: timeColor,
-                  fontSize: base,
-                  fontWeight: FontWeight.w400,
-                  letterSpacing: 1.0,
-                ),
-              ),
-              // blinking colon using FadeTransition driven by controller
-              FadeTransition(
-                opacity: _blinkAnimation,
+              // hours with AnimatedSwitcher for smooth crossfade on change
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 900),
+                transitionBuilder: (child, anim) =>
+                    FadeTransition(opacity: anim, child: child),
                 child: Text(
-                  ':',
-                  key: const Key('minimal_clock_colon'),
+                  hours,
+                  key: ValueKey('h$hours'),
                   style: TextStyle(
                     fontFamily: 'JetBrainsMono',
                     color: timeColor,
                     fontSize: base,
                     fontWeight: FontWeight.w400,
-                    letterSpacing: 0.0,
+                    letterSpacing: 1.0,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ),
-              Text(
-                minutes,
-                key: const Key('minimal_clock_minutes'),
-                style: TextStyle(
-                  fontFamily: 'JetBrainsMono',
-                  color: timeColor,
-                  fontSize: base,
-                  fontWeight: FontWeight.w400,
-                  letterSpacing: 1.0,
+              // blinking colon wrapped in TickerMode so it stops when dimmed
+              TickerMode(
+                enabled: !_dimmed,
+                child: AnimatedBuilder(
+                  animation: _blinkController,
+                  builder: (context, child) {
+                    final t =
+                        Curves.easeInOut.transform(_blinkController.value);
+                    final opacity = lerpDouble(1.0, _blinkMinOpacity, t) ?? 1.0;
+                    return Opacity(opacity: opacity, child: child);
+                  },
+                  child: Text(
+                    ':',
+                    key: const Key('minimal_clock_colon'),
+                    style: TextStyle(
+                      fontFamily: 'JetBrainsMono',
+                      color: timeColor,
+                      fontSize: base,
+                      fontWeight: FontWeight.w400,
+                      letterSpacing: 0.0,
+                    ),
+                  ),
+                ),
+              ),
+              // minutes with AnimatedSwitcher for smooth crossfade on change
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 900),
+                transitionBuilder: (child, anim) =>
+                    FadeTransition(opacity: anim, child: child),
+                child: Text(
+                  minutes,
+                  key: ValueKey('m$minutes'),
+                  style: TextStyle(
+                    fontFamily: 'JetBrainsMono',
+                    color: timeColor,
+                    fontSize: base,
+                    fontWeight: FontWeight.w400,
+                    letterSpacing: 1.0,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
               ),
               // AM/PM indicator for 12-hour mode
               if (!_is24) ...[
-                const SizedBox(width: 8),
                 Padding(
-                  padding: EdgeInsets.only(bottom: base * 0.55),
+                  // align optical baseline with digits so AM/PM doesn't look hung
+                  padding: EdgeInsets.only(bottom: base * 0.3),
                   child: Text(
                     _now.hour >= 12 ? 'PM' : 'AM',
                     style: TextStyle(
                       fontFamily: 'JetBrainsMono',
-                      color: timeColor.withAlpha((0.9 * 255).toInt()),
-                      fontSize: base * 0.11,
-                      fontWeight: FontWeight.w400,
+                      color: timeColor.withAlpha((0.55 * 255).toInt()),
+                      fontSize: base * 0.12,
+                      fontWeight: FontWeight.w300,
                       letterSpacing: 1.0,
                     ),
                   ),
@@ -181,7 +217,7 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
             ],
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         // small date line
         Text(
           _formatDate(_now),
@@ -189,7 +225,7 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
             fontFamily: 'JetBrainsMono',
             color: dateColor,
             fontSize: base * 0.12,
-            fontWeight: FontWeight.w300,
+            fontWeight: FontWeight.w200,
             letterSpacing: 1.0,
           ),
         ),
@@ -201,13 +237,86 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
       body: Center(
         child: GestureDetector(
           onTap: _resetDim,
-          onLongPress: () {
-            // toggle 12/24 on long press
+          onLongPress: () async {
+            // show elapsed desk time overlay
+            _resetDim();
+            await showDialog<void>(
+              context: context,
+              barrierDismissible: true,
+              builder: (ctx) {
+                Timer? liveTimer;
+                return StatefulBuilder(builder: (c, setC) {
+                  // update every 10s while dialog shown so value stays reasonably fresh
+                  liveTimer ??=
+                      Timer.periodic(const Duration(seconds: 10), (_) {
+                    if (!mounted) return;
+                    setC(() {});
+                  });
+                  return WillPopScope(
+                    onWillPop: () async {
+                      liveTimer?.cancel();
+                      return true;
+                    },
+                    child: Dialog(
+                      backgroundColor: Colors.black87,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 20.0, horizontal: 24.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Elapsed desk time',
+                              style: TextStyle(color: timeColor, fontSize: 16),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              _elapsedString(),
+                              style: const TextStyle(
+                                  color: timeColor,
+                                  fontSize: 28,
+                                  fontFamily: 'JetBrainsMono'),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Double-tap anywhere to reset',
+                              style: TextStyle(color: dateColor, fontSize: 12),
+                            ),
+                            const SizedBox(height: 6),
+                            TextButton(
+                              onPressed: () {
+                                liveTimer?.cancel();
+                                Navigator.of(ctx).pop();
+                              },
+                              child: const Text(
+                                'Close',
+                                style: TextStyle(
+                                    color: Color.fromARGB(120, 255, 255, 255)),
+                              ),
+                            )
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                });
+              },
+            );
+          },
+          onDoubleTap: () {
+            // toggle 12/24 display on double-tap
             setState(() {
               _is24 = !_is24;
               _now = DateTime.now();
             });
             _resetDim();
+          },
+          onVerticalDragEnd: (details) {
+            // swipe up (negative dy) to open settings
+            if (details.primaryVelocity != null &&
+                details.primaryVelocity! < -300) {
+              _showSettingsSheet(context);
+            }
           },
           child: AnimatedOpacity(
             duration: const Duration(milliseconds: 400),
@@ -216,6 +325,98 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
           ),
         ),
       ),
+    );
+  }
+
+  void _showSettingsSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.grey[900],
+      builder: (ctx) {
+        return StatefulBuilder(builder: (c, setC) {
+          return Padding(
+            padding:
+                EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 12),
+                Container(height: 4, width: 36, color: Colors.white24),
+                const SizedBox(height: 12),
+                ListTile(
+                  title: const Text('24-hour clock'),
+                  trailing: Switch(
+                    value: _is24,
+                    onChanged: (v) => setState(() {
+                      _is24 = v;
+                    }),
+                  ),
+                ),
+                ListTile(
+                  title: const Text('Blink intensity'),
+                  subtitle: Slider(
+                    min: 0.2,
+                    max: 1.0,
+                    divisions: 16,
+                    value: _blinkMinOpacity,
+                    onChanged: (v) => setState(() {
+                      _blinkMinOpacity = v;
+                    }),
+                  ),
+                ),
+                ListTile(
+                  title: const Text('Dim timeout (minutes)'),
+                  subtitle: Slider(
+                    min: 0.0,
+                    max: 30.0,
+                    divisions: 30,
+                    value: _dimTimeoutMinutes,
+                    onChanged: (v) => setState(() {
+                      // update dim behavior by cancelling and rescheduling with new duration
+                      _dimTimeoutMinutes = v;
+                      _dimTimer?.cancel();
+                      if (v <= 0) {
+                        // disable dim
+                        _dimTimer = null;
+                        _dimmed = false;
+                      } else {
+                        _dimTimer = Timer(Duration(minutes: v.toInt()), () {
+                          if (!mounted) return;
+                          setState(() => _dimmed = true);
+                        });
+                      }
+                    }),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      ElevatedButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        child: const Text('Done'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            // reset session and close
+                            _sessionStart = DateTime.now();
+                          });
+                        },
+                        child: const Text('Reset session'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        });
+      },
     );
   }
 

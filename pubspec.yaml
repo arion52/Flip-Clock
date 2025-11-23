@@ -39,6 +39,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.10.0
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -80,6 +81,15 @@ flutter:
   # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
+
+  # Launcher icon configuration (use a square PNG at assets/icon.png)
+  # Run: flutter pub get && flutter pub run flutter_launcher_icons:main
+  # This will generate platform icons from the provided image_path.
+  # NOTE: Add your icon file at the path below before running the command.
+  # flutter_icons:
+  #   android: true
+  #   ios: true
+  #   image_path: "assets/icon.png"
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
