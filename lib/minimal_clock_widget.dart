@@ -34,6 +34,9 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
   late final SpotifyPlaybackService _spotifyService;
   StreamSubscription<SpotifyTrackState>? _spotifySub;
   SpotifyTrackState? _spotifyState;
+  Timer? _positionTimer;
+  Duration _currentPosition = Duration.zero;
+  DateTime? _lastPositionUpdate;
 
   MediaTrack get _uiTrack => _spotifyState == null
       ? const MediaTrack(
@@ -47,7 +50,7 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
           duration: _spotifyState!.duration,
         );
 
-  Duration get _uiPosition => _spotifyState?.position ?? Duration.zero;
+  Duration get _uiPosition => _currentPosition;
   bool get _uiPlaying => _spotifyState?.isPlaying ?? false;
   bool get _uiControlsEnabled => _spotifyState?.isActive ?? false;
   bool get _uiCanScrub =>
@@ -72,7 +75,12 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
     _spotifySub = _spotifyService.playbackStream.listen(
       (state) {
         if (!mounted) return;
-        setState(() => _spotifyState = state);
+        setState(() {
+          _spotifyState = state;
+          _currentPosition = state.position;
+          _lastPositionUpdate = DateTime.now();
+          _updatePositionTimer();
+        });
       },
       onError: (error, stackTrace) {
         print('❌ [UI] Spotify playback stream error: $error');
@@ -103,9 +111,33 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
     });
   }
 
+  void _updatePositionTimer() {
+    _positionTimer?.cancel();
+    if (_spotifyState?.isPlaying ?? false) {
+      _positionTimer =
+          Timer.periodic(const Duration(milliseconds: 250), (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+        if (_lastPositionUpdate != null &&
+            (_spotifyState?.isPlaying ?? false)) {
+          final elapsed = DateTime.now().difference(_lastPositionUpdate!);
+          final newPosition =
+              (_spotifyState?.position ?? Duration.zero) + elapsed;
+          final duration = _spotifyState?.duration ?? Duration.zero;
+          if (duration > Duration.zero && newPosition <= duration) {
+            setState(() => _currentPosition = newPosition);
+          }
+        }
+      });
+    }
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
+    _positionTimer?.cancel();
     _blinkController.dispose();
     _dimTimer?.cancel();
     _spotifySub?.cancel();
@@ -229,13 +261,16 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
                   ),
                 ),
               ),
-              IgnorePointer(
-                ignoring: !_dimmed,
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 400),
-                  opacity: _dimmed ? 1.0 : 0.0,
-                  child: Container(
-                    color: Colors.black.withOpacity(0.7),
+              GestureDetector(
+                onTap: _dimmed ? _resetDim : null,
+                child: IgnorePointer(
+                  ignoring: !_dimmed,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 400),
+                    opacity: _dimmed ? 1.0 : 0.0,
+                    child: Container(
+                      color: Colors.black.withOpacity(0.7),
+                    ),
                   ),
                 ),
               ),
@@ -248,7 +283,9 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
 
   Widget _buildClock(double maxWidth, double maxHeight, BuildContext context) {
     final clockDimension = math.min(maxWidth, maxHeight);
-    final base = (clockDimension * 0.45).clamp(72.0, clockDimension).toDouble();
+    final base = (clockDimension * 0.45)
+        .clamp(72.0, math.max(72.0, clockDimension))
+        .toDouble();
     final minutes = _now.minute.toString().padLeft(2, '0');
     int displayHour = _now.hour;
     if (!_is24) {
