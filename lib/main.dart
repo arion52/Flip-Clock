@@ -54,7 +54,9 @@ class _FlipClockPageState extends State<FlipClockPage> {
     super.initState();
 
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft]);
+    SystemChrome.setPreferredOrientations(
+      [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
+    );
     WakelockPlus.enable();
   }
 
