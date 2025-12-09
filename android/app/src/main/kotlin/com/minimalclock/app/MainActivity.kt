@@ -1,4 +1,4 @@
-package com.example.flipclock
+package com.minimalclock.app
 
 import io.flutter.embedding.android.FlutterActivity
 

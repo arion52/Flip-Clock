@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.flipclock"
+    namespace = "com.minimalclock.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,8 +20,13 @@ android {
     }
 
     defaultConfig {
+        manifestPlaceholders = [
+            applicationName: "io.flutter.app.FlutterApplication",
+            redirectSchemeName: "spotify-sdk",
+            redirectHostName: "auth"
+        ]
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.flipclock"
+        applicationId = "com.minimalclock.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

@@ -4,6 +4,8 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
+import 'services/spotify_service.dart';
+
 class MinimalClockWidget extends StatefulWidget {
   const MinimalClockWidget({super.key});
 
@@ -29,29 +31,27 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
   // dim timeout in minutes (0 = disabled)
   double _dimTimeoutMinutes = 3.0;
 
-  final List<MediaTrack> _playlist = const [
-    MediaTrack(
-      title: 'Low Tide Circuit',
-      artist: 'Loft Ensemble',
-      duration: Duration(minutes: 3, seconds: 48),
-    ),
-    MediaTrack(
-      title: 'Silk Echoes',
-      artist: 'Ada Monroe',
-      duration: Duration(minutes: 4, seconds: 5),
-    ),
-    MediaTrack(
-      title: 'Midnight Lapse',
-      artist: 'Kodama Fields',
-      duration: Duration(minutes: 5, seconds: 12),
-    ),
-  ];
-  int _currentTrackIndex = 0;
-  bool _mediaPlaying = true;
-  Duration _mediaPosition = Duration.zero;
-  Timer? _mediaProgressTimer;
+  late final SpotifyPlaybackService _spotifyService;
+  StreamSubscription<SpotifyTrackState>? _spotifySub;
+  SpotifyTrackState? _spotifyState;
 
-  MediaTrack get _currentTrack => _playlist[_currentTrackIndex];
+  MediaTrack get _uiTrack => _spotifyState == null
+      ? const MediaTrack(
+          title: 'Spotify',
+          artist: 'Connect to start playback',
+          duration: Duration.zero,
+        )
+      : MediaTrack(
+          title: _spotifyState!.title,
+          artist: _spotifyState!.artist,
+          duration: _spotifyState!.duration,
+        );
+
+  Duration get _uiPosition => _spotifyState?.position ?? Duration.zero;
+  bool get _uiPlaying => _spotifyState?.isPlaying ?? false;
+  bool get _uiControlsEnabled => _spotifyState?.isActive ?? false;
+  bool get _uiCanScrub =>
+      _uiControlsEnabled && (_spotifyState?.duration.inMilliseconds ?? 0) > 0;
 
   @override
   void initState() {
@@ -65,7 +65,21 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
       duration: const Duration(milliseconds: 1400),
     )..repeat();
     _resetDim();
-    _syncMediaProgressTimer();
+    _spotifyService = SpotifyPlaybackService(
+      clientId: '47686d20ae4a416caa61bff5accef7ef',
+      redirectUri: 'spotify-sdk://auth',
+    );
+    _spotifySub = _spotifyService.playbackStream.listen(
+      (state) {
+        if (!mounted) return;
+        setState(() => _spotifyState = state);
+      },
+      onError: (error, stackTrace) {
+        print('❌ [UI] Spotify playback stream error: $error');
+        print('❌ [UI] Stack trace: $stackTrace');
+      },
+    );
+    Future.microtask(() => _spotifyService.connect());
   }
 
   void _tick() {
@@ -94,7 +108,8 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
     _timer?.cancel();
     _blinkController.dispose();
     _dimTimer?.cancel();
-    _mediaProgressTimer?.cancel();
+    _spotifySub?.cancel();
+    _spotifyService.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -108,7 +123,7 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
       });
       _startTimer();
       _resetDim();
-      _syncMediaProgressTimer();
+      Future.microtask(() => _spotifyService.connect());
     }
   }
 
@@ -193,14 +208,22 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
                       ),
                       SizedBox(height: isTablet ? 28 : 20),
                       MediaControlsBar(
-                        track: _currentTrack,
-                        position: _mediaPosition,
-                        isPlaying: _mediaPlaying,
+                        track: _uiTrack,
+                        position: _uiPosition,
+                        isPlaying: _uiPlaying,
                         isTablet: isTablet,
-                        onPlayPause: _handlePlayPause,
-                        onNext: () => _advanceTrack(),
-                        onPrev: () => _advanceTrack(delta: -1),
-                        onScrub: _handleScrub,
+                        onPlayPause: _uiControlsEnabled
+                            ? () => unawaited(_handlePlayPause())
+                            : null,
+                        onNext: _uiControlsEnabled
+                            ? () => unawaited(_advanceTrack(delta: 1))
+                            : null,
+                        onPrev: _uiControlsEnabled
+                            ? () => unawaited(_advanceTrack(delta: -1))
+                            : null,
+                        onScrub: _uiCanScrub
+                            ? (value) => unawaited(_handleScrub(value))
+                            : null,
                       ),
                     ],
                   ),
@@ -595,57 +618,39 @@ class _MinimalClockWidgetState extends State<MinimalClockWidget>
     );
   }
 
-  void _handlePlayPause() {
-    setState(() {
-      _mediaPlaying = !_mediaPlaying;
-    });
-    _resetDim();
-    _syncMediaProgressTimer();
-  }
-
-  void _advanceTrack({int delta = 1, bool autoAdvance = false}) {
-    final total = _playlist.length;
-    setState(() {
-      _currentTrackIndex = (_currentTrackIndex + delta) % total;
-      if (_currentTrackIndex < 0) {
-        _currentTrackIndex += total;
-      }
-      _mediaPosition = Duration.zero;
-    });
-    if (!autoAdvance) {
-      _resetDim();
+  Future<void> _handlePlayPause() async {
+    if (_spotifyState == null) {
+      await _spotifyService.connect();
+      return;
     }
-    _syncMediaProgressTimer();
-  }
-
-  void _handleScrub(double fraction) {
-    final safeFraction = fraction.clamp(0.0, 1.0).toDouble();
-    final duration = _currentTrack.duration;
-    if (duration.inMilliseconds == 0) return;
-    setState(() {
-      _mediaPosition = Duration(
-        milliseconds: (duration.inMilliseconds * safeFraction).round(),
-      );
-    });
+    await _spotifyService.togglePlayPause(
+      isPlaying: _spotifyState?.isPlaying ?? false,
+    );
     _resetDim();
   }
 
-  void _syncMediaProgressTimer() {
-    _mediaProgressTimer?.cancel();
-    if (!_mediaPlaying) return;
-    _mediaProgressTimer =
-        Timer.periodic(const Duration(seconds: 1), (Timer timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      final nextPosition = _mediaPosition + const Duration(seconds: 1);
-      if (nextPosition >= _currentTrack.duration) {
-        _advanceTrack(autoAdvance: true);
-      } else {
-        setState(() => _mediaPosition = nextPosition);
-      }
-    });
+  Future<void> _advanceTrack({int delta = 1}) async {
+    if (_spotifyState == null) {
+      await _spotifyService.connect();
+      return;
+    }
+    if (delta >= 0) {
+      await _spotifyService.skipNext();
+    } else {
+      await _spotifyService.skipPrevious();
+    }
+    _resetDim();
+  }
+
+  Future<void> _handleScrub(double fraction) async {
+    final state = _spotifyState;
+    if (state == null || state.duration.inMilliseconds <= 0) return;
+    final safeFraction = fraction.clamp(0.0, 1.0).toDouble();
+    final newPosition = Duration(
+      milliseconds: (state.duration.inMilliseconds * safeFraction).round(),
+    );
+    await _spotifyService.seekTo(newPosition);
+    _resetDim();
   }
 
   String _formatDate(DateTime d) {
@@ -687,10 +692,10 @@ class MediaControlsBar extends StatelessWidget {
   final Duration position;
   final bool isPlaying;
   final bool isTablet;
-  final VoidCallback onPlayPause;
-  final VoidCallback onNext;
-  final VoidCallback onPrev;
-  final ValueChanged<double> onScrub;
+  final VoidCallback? onPlayPause;
+  final VoidCallback? onNext;
+  final VoidCallback? onPrev;
+  final ValueChanged<double>? onScrub;
 
   const MediaControlsBar({
     super.key,
@@ -698,10 +703,10 @@ class MediaControlsBar extends StatelessWidget {
     required this.position,
     required this.isPlaying,
     required this.isTablet,
-    required this.onPlayPause,
-    required this.onNext,
-    required this.onPrev,
-    required this.onScrub,
+    this.onPlayPause,
+    this.onNext,
+    this.onPrev,
+    this.onScrub,
   });
 
   @override
@@ -763,7 +768,7 @@ class MediaControlsBar extends StatelessWidget {
           ),
           child: Slider(
             value: progress,
-            onChanged: onScrub,
+            onChanged: (onScrub == null || totalMs == 0) ? null : onScrub,
             min: 0,
             max: 1,
           ),
